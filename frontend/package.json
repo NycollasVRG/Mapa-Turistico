@@ -1,0 +1,25 @@
+{
+  "name": "geoturismo-frontend",
+  "version": "1.0.0",
+  "description": "Interface web cartográfica com Leaflet para o GeoTurismo",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "keywords": [
+    "leaflet",
+    "vite",
+    "maps",
+    "gis"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "leaflet": "^1.9.4"
+  },
+  "devDependencies": {
+    "vite": "^6.1.1"
+  }
+}
