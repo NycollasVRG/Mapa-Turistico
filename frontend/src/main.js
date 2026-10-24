@@ -258,7 +258,136 @@ export function locateUser(options = { notifySuccess: false }) {
 }
 
 // ========================================================
-// 6. Inicialização do Mapa Leaflet
+// 6. Utilitários & Feedback Visual de Sincronização
+// ========================================================
+/**
+ * Utilitário de Debounce para limitar a frequência de chamadas repetitivas
+ * (ex: eventos 'moveend' ao arrastar ou dar zoom no Leaflet).
+ * @param {Function} func Função a ser executada com atraso
+ * @param {number} [delay=400] Atraso em milissegundos (padrão 400ms conforme US02)
+ * @returns {Function} Função decorada com debounce
+ */
+export function debounce(func, delay = 400) {
+  let timer = null;
+  return function (...args) {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      func.apply(this, args);
+      timer = null;
+    }, delay);
+  };
+}
+
+/**
+ * Atualiza o indicador visual e contador de pontos no header da aplicação.
+ * @param {number|null} [count=null] Quantidade de pontos visíveis
+ * @param {boolean} [isLoading=false] Estado de carregamento ativo
+ * @param {boolean} [isError=false] Estado de erro de conexão
+ * @param {string} [customText=''] Texto personalizado opcional
+ */
+export function atualizarStatusPontos(count = null, isLoading = false, isError = false, customText = '') {
+  const dot = document.getElementById('badge-status-dot');
+  const text = document.getElementById('points-status-text');
+  if (!dot || !text) return;
+
+  dot.classList.remove('loading', 'error', 'offline');
+
+  if (isLoading) {
+    dot.classList.add('loading');
+    text.textContent = customText || 'Carregando área...';
+    return;
+  }
+
+  if (isError) {
+    dot.classList.add('error');
+    text.textContent = customText || 'Erro ao sincronizar';
+    return;
+  }
+
+  // Estado sincronizado com sucesso
+  if (typeof count === 'number') {
+    text.textContent = count === 1 ? '1 ponto visível' : `${count} pontos visíveis`;
+  } else if (customText) {
+    text.textContent = customText;
+  }
+}
+
+// ========================================================
+// 7. Renderização Modular de Marcadores (US02 / US03)
+// ========================================================
+/**
+ * Renderiza os pontos turísticos recebidos da API na camada markersLayer.
+ * Executa a reciclagem da camada (clearLayers) preservando intacta a userLayer.
+ * Associa popups limpos com identificação para o Dev 3 (US05/US06).
+ * @param {Array<object>} pontos Lista de pontos turísticos
+ */
+export function renderizarPontos(pontos = []) {
+  if (!markersLayer) {
+    console.warn('[GeoTurismo] markersLayer ainda não foi inicializado.');
+    return;
+  }
+
+  // 1. Reciclagem de marcadores: remove apenas pontos da camada markersLayer
+  // Mantém estritamente o marcador do usuário ("Você está aqui") na userLayer
+  markersLayer.clearLayers();
+
+  if (!Array.isArray(pontos)) {
+    console.warn('[GeoTurismo] renderizarPontos recebeu dados em formato inválido:', pontos);
+    atualizarStatusPontos(0, false);
+    return;
+  }
+
+  // 2. Itera e cria marcadores no Leaflet
+  pontos.forEach((ponto) => {
+    const lat = parseFloat(ponto.latitude);
+    const lng = parseFloat(ponto.longitude);
+
+    if (isNaN(lat) || isNaN(lng)) {
+      console.warn(`[GeoTurismo] Ponto com coordenadas inválidas ignorado: ID ${ponto.id}`);
+      return;
+    }
+
+    const marker = Leaflet.marker([lat, lng], {
+      title: ponto.nome || 'Ponto Turístico'
+    });
+
+    // Sanitização e formatação do conteúdo do popup
+    const nome = ponto.nome || 'Ponto Turístico';
+    const categoria = ponto.categoria || 'Geral';
+    const descricao = ponto.descricao || 'Nenhuma descrição detalhada disponível.';
+    const fotoHtml = ponto.foto_url
+      ? `<img src="${ponto.foto_url}" alt="${nome}" class="ponto-popup-image" loading="lazy" onerror="this.style.display='none'" />`
+      : '';
+
+    // Estrutura modular preparada para estilização e ações do Dev 3 (US05/US06)
+    const popupContent = `
+      <div class="ponto-popup-container" data-ponto-id="${ponto.id || ''}">
+        <div class="ponto-popup-header">
+          <h3 class="ponto-popup-title">${nome}</h3>
+          <span class="ponto-popup-category">${categoria}</span>
+        </div>
+        ${fotoHtml}
+        <p class="ponto-popup-description">${descricao}</p>
+        <div class="ponto-popup-actions" id="ponto-actions-${ponto.id || ''}">
+          <!-- Slot reservado para botões de detalhes, edição e exclusão (Dev 3 - US05/US06) -->
+        </div>
+      </div>
+    `;
+
+    marker.bindPopup(popupContent, {
+      maxWidth: 280,
+      className: 'ponto-leaflet-popup'
+    });
+
+    markersLayer.addLayer(marker);
+  });
+
+  // Atualiza o contador de pontos visíveis
+  atualizarStatusPontos(markersLayer.getLayers().length, false);
+}
+
+// ========================================================
+// 8. Inicialização do Mapa Leaflet
 // ========================================================
 /**
  * Inicializa a instância do Leaflet, adiciona o TileLayer OpenStreetMap,
@@ -311,6 +440,9 @@ export function initMap() {
     API_BASE_URL,
     locateUser,
     renderUserMarker,
+    renderizarPontos,
+    atualizarStatusPontos,
+    debounce,
     showToast
   };
 
