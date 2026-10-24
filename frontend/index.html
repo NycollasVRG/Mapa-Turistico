@@ -29,6 +29,12 @@
 
       <!-- Área de ações e controles (US01 GPS, US03 Raio, US04 Cadastro) -->
       <div id="header-actions">
+        <!-- Indicador de Status dos Pontos / Loading na Viewport (US02) -->
+        <div id="points-status-badge" class="points-badge" title="Status dos pontos visíveis na área do mapa">
+          <span class="badge-dot" id="badge-status-dot"></span>
+          <span id="points-status-text">Inicializando...</span>
+        </div>
+
         <!-- Botão de recentralização na localização atual (US01) -->
         <button id="btn-my-location" class="btn btn-outline" title="Centralizar na minha localização" aria-label="Minha Localização">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
