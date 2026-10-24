@@ -186,6 +186,7 @@ export function handleLocationFallback(reason) {
   if (map) {
     map.setView([DEFAULT_LOCATION.lat, DEFAULT_LOCATION.lng], DEFAULT_ZOOM);
     renderUserMarker(DEFAULT_LOCATION.lat, DEFAULT_LOCATION.lng, false);
+    debouncedCarregarPontos();
   }
 
   showToast(
@@ -227,6 +228,7 @@ export function locateUser(options = { notifySuccess: false }) {
       if (map) {
         map.setView([latitude, longitude], DEFAULT_ZOOM);
         renderUserMarker(latitude, longitude, true);
+        debouncedCarregarPontos();
       }
 
       if (options.notifySuccess) {
@@ -387,7 +389,84 @@ export function renderizarPontos(pontos = []) {
 }
 
 // ========================================================
-// 8. Inicialização do Mapa Leaflet
+// 8. US02: Carregamento Otimizado por Bounding Box
+// ========================================================
+/**
+ * Flag booleana de controle para evitar conflito com a busca por raio (US03).
+ * Quando true, o carregamento automático por Bounding Box no 'moveend' é ignorado.
+ */
+export let isRadiusSearchActive = false;
+
+/**
+ * Altera o estado da busca por raio (US03) e sincroniza com o objeto global window.
+ * @param {boolean} active 
+ */
+export function setRadiusSearchActive(active) {
+  isRadiusSearchActive = Boolean(active);
+  if (window.geoTurismo) {
+    window.geoTurismo.isRadiusSearchActive = isRadiusSearchActive;
+  }
+}
+
+/**
+ * Executa a requisição de pontos turísticos contidos estritamente na viewport visível (Bounding Box).
+ * Utiliza as coordenadas extremas fornecidas por map.getBounds() e atualiza a markersLayer.
+ * @returns {Promise<Array<object>|null>} Lista de pontos obtidos da API
+ */
+export async function carregarPontosPorBBox() {
+  if (!map) {
+    console.warn('[GeoTurismo] Tentativa de buscar pontos sem o mapa estar inicializado.');
+    return null;
+  }
+
+  // Prevenção de conflito arquitetural com US03 (busca por raio)
+  if (isRadiusSearchActive) {
+    console.log('[GeoTurismo] Busca por BBox ignorada: busca por raio (US03) está ativa.');
+    return null;
+  }
+
+  const bounds = map.getBounds();
+  const minLng = bounds.getWest();
+  const minLat = bounds.getSouth();
+  const maxLng = bounds.getEast();
+  const maxLat = bounds.getNorth();
+
+  // Ativa feedback visual de carregamento
+  atualizarStatusPontos(null, true);
+
+  try {
+    const url = `${API_BASE_URL}/pontos?bbox=${minLng},${minLat},${maxLng},${maxLat}`;
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      throw new Error(`Falha na resposta do servidor (Status HTTP ${response.status})`);
+    }
+
+    const pontos = await response.json();
+    renderizarPontos(pontos);
+    return pontos;
+  } catch (error) {
+    console.error('[GeoTurismo] Falha ao carregar pontos por BBox:', error);
+    atualizarStatusPontos(0, false, true, 'Servidor offline / Erro');
+    showToast(
+      'Não foi possível conectar ao servidor para carregar os pontos turísticos.',
+      'error',
+      'Erro de Conexão'
+    );
+    return null;
+  }
+}
+
+/**
+ * Função de carregamento por BBox envolvida por debounce de 400ms para o evento moveend.
+ */
+export const debouncedCarregarPontos = debounce(() => {
+  if (isRadiusSearchActive) return;
+  carregarPontosPorBBox();
+}, 400);
+
+// ========================================================
+// 9. Inicialização do Mapa Leaflet
 // ========================================================
 /**
  * Inicializa a instância do Leaflet, adiciona o TileLayer OpenStreetMap,
@@ -422,6 +501,9 @@ export function initMap() {
   markersLayer = Leaflet.layerGroup().addTo(map);
   radiusLayer = Leaflet.layerGroup().addTo(map);
 
+  // US02: Ouve o evento moveend com debounce de 400ms para recarregar a viewport
+  map.on('moveend', debouncedCarregarPontos);
+
   // Vincula evento do botão "Minha Localização" no Header
   const btnMyLocation = document.getElementById('btn-my-location');
   if (btnMyLocation) {
@@ -429,6 +511,9 @@ export function initMap() {
       locateUser({ notifySuccess: true });
     });
   }
+
+  // Exposição global direta para Dev 3 (operações CRUD) e US03
+  window.carregarPontosPorBBox = carregarPontosPorBBox;
 
   // Disponibiliza as referências no objeto global window para integração dos demais membros (Dev 2 e Dev 3)
   window.geoTurismo = {
@@ -438,6 +523,10 @@ export function initMap() {
     markersLayer,
     radiusLayer,
     API_BASE_URL,
+    isRadiusSearchActive,
+    setRadiusSearchActive,
+    carregarPontosPorBBox,
+    debouncedCarregarPontos,
     locateUser,
     renderUserMarker,
     renderizarPontos,
