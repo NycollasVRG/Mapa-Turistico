@@ -93,3 +93,150 @@ exports.buscarPorProximidade = async (req, res) => {
     res.status(500).json({ error: 'Erro interno na busca espacial por proximidade' });
   }
 };
+
+// Obter detalhes de um único ponto por ID
+// GET /api/pontos/:id
+exports.obterPontoPorId = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const query = `
+      SELECT id, nome, descricao, categoria, foto_url,
+             ST_X(geom) AS longitude, ST_Y(geom) AS latitude,
+             criado_em
+      FROM pontos_turisticos
+      WHERE id = $1
+    `;
+    const result = await db.query(query, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Ponto turístico não encontrado' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Erro ao buscar ponto por ID:', error);
+    res.status(500).json({ error: 'Erro interno ao consultar ponto turístico' });
+  }
+};
+
+// US04: Cadastrar novo ponto turístico
+// POST /api/pontos
+exports.criarPonto = async (req, res) => {
+  try {
+    const { nome, descricao, categoria, foto_url, latitude, longitude } = req.body;
+
+    if (!nome || !categoria || latitude === undefined || longitude === undefined) {
+      return res.status(400).json({
+        error: 'Campos obrigatórios: nome, categoria, latitude e longitude'
+      });
+    }
+
+    const lat = parseFloat(latitude);
+    const lng = parseFloat(longitude);
+
+    if (isNaN(lat) || isNaN(lng)) {
+      return res.status(400).json({ error: 'Latitude e Longitude devem ser valores numéricos válidos' });
+    }
+
+    // Persistência com tipo geométrico nativo Point e SRID 4326 (WGS84)
+    const query = `
+      INSERT INTO pontos_turisticos (nome, descricao, categoria, foto_url, geom)
+      VALUES ($1, $2, $3, $4, ST_SetSRID(ST_MakePoint($5, $6), 4326))
+      RETURNING id, nome, descricao, categoria, foto_url,
+                ST_X(geom) AS longitude, ST_Y(geom) AS latitude, criado_em
+    `;
+
+    // Lembrar: ST_MakePoint recebe (longitude, latitude)
+    const result = await db.query(query, [
+      nome,
+      descricao || null,
+      categoria,
+      foto_url || null,
+      lng,
+      lat
+    ]);
+
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error('Erro ao cadastrar ponto turístico:', error);
+    res.status(500).json({ error: 'Erro interno ao cadastrar ponto turístico' });
+  }
+};
+
+// US06: Atualizar ponto turístico existente
+// PUT /api/pontos/:id
+exports.atualizarPonto = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nome, descricao, categoria, foto_url, latitude, longitude } = req.body;
+
+    if (!nome || !categoria || latitude === undefined || longitude === undefined) {
+      return res.status(400).json({
+        error: 'Campos obrigatórios: nome, categoria, latitude e longitude'
+      });
+    }
+
+    const lat = parseFloat(latitude);
+    const lng = parseFloat(longitude);
+
+    if (isNaN(lat) || isNaN(lng)) {
+      return res.status(400).json({ error: 'Latitude e Longitude devem ser valores numéricos válidos' });
+    }
+
+    const query = `
+      UPDATE pontos_turisticos
+      SET nome = $1,
+          descricao = $2,
+          categoria = $3,
+          foto_url = $4,
+          geom = ST_SetSRID(ST_MakePoint($5, $6), 4326)
+      WHERE id = $7
+      RETURNING id, nome, descricao, categoria, foto_url,
+                ST_X(geom) AS longitude, ST_Y(geom) AS latitude
+    `;
+
+    const result = await db.query(query, [
+      nome,
+      descricao || null,
+      categoria,
+      foto_url || null,
+      lng,
+      lat,
+      id
+    ]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Ponto turístico não encontrado para atualização' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Erro ao atualizar ponto turístico:', error);
+    res.status(500).json({ error: 'Erro interno ao atualizar ponto turístico' });
+  }
+};
+
+// US06: Excluir ponto turístico
+// DELETE /api/pontos/:id
+exports.excluirPonto = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const query = `
+      DELETE FROM pontos_turisticos
+      WHERE id = $1
+      RETURNING id
+    `;
+
+    const result = await db.query(query, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Ponto turístico não encontrado para exclusão' });
+    }
+
+    res.json({ message: 'Ponto turístico removido com sucesso', id: result.rows[0].id });
+  } catch (error) {
+    console.error('Erro ao excluir ponto turístico:', error);
+    res.status(500).json({ error: 'Erro interno ao excluir ponto turístico' });
+  }
+};
