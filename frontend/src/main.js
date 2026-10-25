@@ -466,7 +466,156 @@ export const debouncedCarregarPontos = debounce(() => {
 }, 400);
 
 // ========================================================
-// 9. Inicialização do Mapa Leaflet
+// 9. US03: Busca Espacial por Raio de Proximidade (Buffer / ST_DWithin)
+// ========================================================
+/**
+ * Formata um valor numérico de distância em metros para exibição amigável.
+ * @param {number|string} metros Distância calculada em metros
+ * @returns {string} Distância formatada (ex: "450 m" ou "2.5 km")
+ */
+export function formatarDistancia(metros) {
+  if (metros === undefined || metros === null || isNaN(metros)) return '';
+  const m = Math.round(Number(metros));
+  if (m < 1000) {
+    return `${m} m`;
+  }
+  const km = (m / 1000).toFixed(1).replace('.0', '');
+  return `${km} km`;
+}
+
+/**
+ * Executa a busca de pontos turísticos dentro de um raio especificado em quilômetros.
+ * Desenha o círculo visual translúcido no Leaflet (radiusLayer), enquadra o mapa com fitBounds,
+ * previne conflito com o carregamento por BBox e consome GET /api/pontos/proximidade.
+ * @param {number|string} raioKm Raio em quilômetros
+ * @returns {Promise<Array<object>|null>} Lista de pontos encontrados
+ */
+export async function buscarPontosPorRaio(raioKm) {
+  if (!map) {
+    console.warn('[GeoTurismo] Tentativa de buscar por raio sem o mapa estar inicializado.');
+    return null;
+  }
+
+  // Se o valor for vazio ou inválido, desativa o filtro de raio e volta para a área visível
+  if (!raioKm || isNaN(raioKm) || Number(raioKm) <= 0) {
+    desativarBuscaPorRaio(false);
+    return null;
+  }
+
+  const km = parseFloat(raioKm);
+  const raioMetros = km * 1000;
+
+  // Garante que as coordenadas de referência estão definidas
+  if (userLocation.lat === undefined || userLocation.lng === undefined) {
+    showToast('Localização de referência indisponível para busca por raio.', 'warning', 'Aviso');
+    return null;
+  }
+
+  // 1. Limpa desenhos de raios anteriores
+  if (radiusLayer) {
+    radiusLayer.clearLayers();
+  }
+
+  // 2. CRÍTICO: Ativa a flag ANTES de fitBounds para evitar que o evento moveend
+  // disparado pelo fitBounds execute uma busca por BBox sobrescrevendo o raio
+  setRadiusSearchActive(true);
+
+  // 3. Desenha o círculo visual translúcido centrado no usuário
+  const circle = Leaflet.circle([userLocation.lat, userLocation.lng], {
+    radius: raioMetros,
+    color: '#0284c7',
+    weight: 2,
+    opacity: 0.85,
+    fillColor: '#38bdf8',
+    fillOpacity: 0.15,
+    dashArray: '6, 6'
+  });
+
+  if (radiusLayer) {
+    radiusLayer.addLayer(circle);
+  }
+
+  // 4. Ajusta o enquadramento suavemente para caber o círculo na tela
+  map.fitBounds(circle.getBounds(), {
+    padding: [30, 30],
+    maxZoom: 16
+  });
+
+  // 5. Exibe o botão de limpar filtro no Header
+  const btnClear = document.getElementById('btn-clear-radius');
+  if (btnClear) {
+    btnClear.classList.remove('hidden');
+  }
+
+  // 6. Ativa feedback de carregamento
+  atualizarStatusPontos(null, true, false, `Buscando em ${km} km...`);
+
+  try {
+    const url = `${API_BASE_URL}/pontos/proximidade?lng=${userLocation.lng}&lat=${userLocation.lat}&raio=${raioMetros}`;
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      throw new Error(`Falha na resposta do servidor (Status HTTP ${response.status})`);
+    }
+
+    const pontos = await response.json();
+
+    // 7. Renderiza os pontos encontrados
+    renderizarPontos(pontos);
+
+    // 8. Atualiza o status badge e notifica com toast amigável
+    const count = Array.isArray(pontos) ? pontos.length : 0;
+    const textoStatus = count === 1 ? `1 ponto em ${km} km` : `${count} pontos em ${km} km`;
+    atualizarStatusPontos(count, false, false, textoStatus);
+
+    showToast(
+      count === 0
+        ? `Nenhum ponto turístico cadastrado no raio de ${km} km.`
+        : `${count} ponto(s) encontrado(s) dentro do raio de ${km} km.`,
+      count === 0 ? 'info' : 'success',
+      'Busca por Proximidade'
+    );
+
+    return pontos;
+  } catch (error) {
+    console.error('[GeoTurismo] Erro na busca por proximidade:', error);
+    atualizarStatusPontos(0, false, true, 'Erro na busca');
+    showToast(
+      'Não foi possível realizar a busca por proximidade no servidor.',
+      'error',
+      'Erro de Conexão'
+    );
+    return null;
+  }
+}
+
+/**
+ * Desativa o filtro de busca por raio, limpa a camada gráfica e restaura o modo de Bounding Box.
+ * @param {boolean} [resetSelect=true] Se true, redefine o elemento select para vazio
+ */
+export function desativarBuscaPorRaio(resetSelect = true) {
+  if (radiusLayer) {
+    radiusLayer.clearLayers();
+  }
+
+  setRadiusSearchActive(false);
+
+  if (resetSelect) {
+    const select = document.getElementById('select-radius');
+    if (select) select.value = '';
+  }
+
+  const btnClear = document.getElementById('btn-clear-radius');
+  if (btnClear) {
+    btnClear.classList.add('hidden');
+  }
+
+  showToast('Filtro por raio desativado. Exibindo área visível.', 'info', 'Área Visível');
+  carregarPontosPorBBox();
+}
+
+// ========================================================
+// 10. Inicialização do Mapa Leaflet
 // ========================================================
 /**
  * Inicializa a instância do Leaflet, adiciona o TileLayer OpenStreetMap,
@@ -512,8 +661,30 @@ export function initMap() {
     });
   }
 
+  // US03: Vincula eventos do seletor de raio e botão de limpar
+  const selectRadius = document.getElementById('select-radius');
+  if (selectRadius) {
+    selectRadius.addEventListener('change', (e) => {
+      const val = e.target.value;
+      if (val) {
+        buscarPontosPorRaio(val);
+      } else {
+        desativarBuscaPorRaio(false);
+      }
+    });
+  }
+
+  const btnClearRadius = document.getElementById('btn-clear-radius');
+  if (btnClearRadius) {
+    btnClearRadius.addEventListener('click', () => {
+      desativarBuscaPorRaio(true);
+    });
+  }
+
   // Exposição global direta para Dev 3 (operações CRUD) e US03
   window.carregarPontosPorBBox = carregarPontosPorBBox;
+  window.buscarPontosPorRaio = buscarPontosPorRaio;
+  window.desativarBuscaPorRaio = desativarBuscaPorRaio;
 
   // Disponibiliza as referências no objeto global window para integração dos demais membros (Dev 2 e Dev 3)
   window.geoTurismo = {
@@ -527,6 +698,9 @@ export function initMap() {
     setRadiusSearchActive,
     carregarPontosPorBBox,
     debouncedCarregarPontos,
+    buscarPontosPorRaio,
+    desativarBuscaPorRaio,
+    formatarDistancia,
     locateUser,
     renderUserMarker,
     renderizarPontos,
