@@ -134,6 +134,78 @@ body {
   align-items: center;
 }
 
+/* ========================================================
+   Controle de Filtro por Raio (US03)
+   ======================================================== */
+.radius-control-container {
+  display: inline-flex;
+  align-items: center;
+  background-color: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: var(--radius-sm);
+  padding: 0.15rem 0.4rem 0.15rem 0.5rem;
+  gap: 0.35rem;
+  backdrop-filter: blur(4px);
+  transition: all 0.2s ease;
+}
+
+.radius-control-container:hover,
+.radius-control-container:focus-within {
+  background-color: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.45);
+}
+
+.radius-icon {
+  font-size: 0.95rem;
+  line-height: 1;
+  user-select: none;
+}
+
+.select-radius {
+  background: transparent;
+  color: #ffffff;
+  border: none;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+  padding: 0.3rem 0.2rem;
+  font-family: inherit;
+}
+
+.select-radius option {
+  background-color: #0f172a;
+  color: #ffffff;
+}
+
+.btn-clear-radius {
+  background: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 50%;
+  width: 22px;
+  height: 22px;
+  font-size: 0.75rem;
+  font-weight: bold;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  line-height: 1;
+  padding: 0;
+}
+
+.btn-clear-radius:hover {
+  background: rgba(239, 68, 68, 0.4);
+  color: #ffffff;
+  transform: scale(1.1);
+}
+
+.btn-clear-radius.hidden {
+  display: none !important;
+}
+
 /* Indicador de Status dos Pontos (US02) */
 .points-badge {
   display: inline-flex;
@@ -374,6 +446,21 @@ body {
   border-top: 1px solid var(--border-color);
 }
 
+.ponto-popup-distance {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: #0369a1;
+  background-color: #f0f9ff;
+  border: 1px solid #bae6fd;
+  padding: 0.18rem 0.45rem;
+  border-radius: 9999px;
+  width: fit-content;
+  margin-top: 0.1rem;
+}
+
 /* ========================================================
    Sistema de Toasts Não Bloqueantes
    ======================================================== */
@@ -488,6 +575,17 @@ body {
   .points-badge {
     padding: 0.25rem 0.5rem;
     font-size: 0.72rem;
+  }
+
+  .radius-control-container {
+    padding: 0.15rem 0.25rem;
+    gap: 0.2rem;
+  }
+
+  .select-radius {
+    font-size: 0.75rem;
+    max-width: 120px;
+    padding: 0.2rem 0.1rem;
   }
 
   .toast {

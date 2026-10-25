@@ -48,8 +48,22 @@
           <span class="btn-text">Minha Localização</span>
         </button>
 
-        <!-- Placeholder para Controles Futuros: US03 (Filtro por Raio) -->
-        <div id="radius-control-placeholder" class="header-slot"></div>
+        <!-- Controle de Filtro por Raio (US03) -->
+        <div id="radius-control-container" class="radius-control-container" title="Buscar pontos turísticos por raio de proximidade">
+          <span class="radius-icon" aria-hidden="true">🎯</span>
+          <select id="select-radius" class="select-radius" aria-label="Selecione o raio de proximidade">
+            <option value="">Área Visível (Padrão)</option>
+            <option value="1">Raio de 1 km</option>
+            <option value="2">Raio de 2 km</option>
+            <option value="5">Raio de 5 km</option>
+            <option value="10">Raio de 10 km</option>
+            <option value="20">Raio de 20 km</option>
+            <option value="50">Raio de 50 km</option>
+          </select>
+          <button id="btn-clear-radius" class="btn-clear-radius hidden" title="Limpar filtro de raio e voltar à área visível" aria-label="Limpar filtro de raio">
+            ✕
+          </button>
+        </div>
 
         <!-- Placeholder para Controles Futuros: US04 (Novo Ponto - Dev 3) -->
         <div id="crud-control-placeholder" class="header-slot"></div>
