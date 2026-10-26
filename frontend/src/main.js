@@ -7,6 +7,7 @@ import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import './style.css';
 import { initCadastro } from './cadastro.js';
+import { criarConteudoPopup, vincularEventosPopup } from './popup.js';
 
 // Garante compatibilidade tanto com Vite quanto com CDN nativo (window.L)
 const Leaflet = window.L || L;
@@ -354,33 +355,16 @@ export function renderizarPontos(pontos = []) {
       title: ponto.nome || 'Ponto Turístico'
     });
 
-    // Sanitização e formatação do conteúdo do popup
-    const nome = ponto.nome || 'Ponto Turístico';
-    const categoria = ponto.categoria || 'Geral';
-    const descricao = ponto.descricao || 'Nenhuma descrição detalhada disponível.';
-    const fotoHtml = ponto.foto_url
-      ? `<img src="${ponto.foto_url}" alt="${nome}" class="ponto-popup-image" loading="lazy" onerror="this.style.display='none'" />`
-      : '';
-
-    // Estrutura modular preparada para estilização e ações do Dev 3 (US05/US06)
-    const popupContent = `
-      <div class="ponto-popup-container" data-ponto-id="${ponto.id || ''}">
-        <div class="ponto-popup-header">
-          <h3 class="ponto-popup-title">${nome}</h3>
-          <span class="ponto-popup-category">${categoria}</span>
-        </div>
-        ${fotoHtml}
-        <p class="ponto-popup-description">${descricao}</p>
-        <div class="ponto-popup-actions" id="ponto-actions-${ponto.id || ''}">
-          <!-- Slot reservado para botões de detalhes, edição e exclusão (Dev 3 - US05/US06) -->
-        </div>
-      </div>
-    `;
+    // US05: Construção do popup estilizado com placeholder e ações (Dev 3)
+    const popupContent = criarConteudoPopup(ponto, formatarDistancia);
 
     marker.bindPopup(popupContent, {
-      maxWidth: 280,
+      maxWidth: 300,
+      minWidth: 240,
       className: 'ponto-leaflet-popup'
     });
+
+    vincularEventosPopup(marker, ponto, { showToast });
 
     markersLayer.addLayer(marker);
   });
@@ -704,6 +688,8 @@ export function initMap() {
     formatarDistancia,
     locateUser,
     renderUserMarker,
+    criarConteudoPopup,
+    vincularEventosPopup,
     renderizarPontos,
     atualizarStatusPontos,
     debounce,
