@@ -168,6 +168,9 @@ export function criarConteudoPopup(ponto = {}, formatarDistanciaFn = null) {
 export function vincularEventosPopup(marker, ponto, options = {}) {
   if (!marker || !ponto) return;
 
+  marker.pontoId = ponto.id;
+  marker.pontoData = ponto;
+
   marker.on('popupopen', (event) => {
     const popupEl = event.popup?.getElement();
     if (!popupEl) return;
@@ -180,19 +183,15 @@ export function vincularEventosPopup(marker, ponto, options = {}) {
         e.preventDefault();
         e.stopPropagation();
 
-        document.dispatchEvent(
-          new CustomEvent('geoturismo:editar-ponto', { detail: { ponto, marker } })
-        );
+        const dadosAtuais = marker.pontoData || ponto;
 
         if (typeof window.geoTurismo?.abrirEdicao === 'function') {
-          window.geoTurismo.abrirEdicao(ponto);
+          window.geoTurismo.abrirEdicao(dadosAtuais, marker);
         } else if (typeof options.onEdit === 'function') {
-          options.onEdit(ponto);
-        } else if (typeof options.showToast === 'function') {
-          options.showToast(
-            `Edição selecionada para "${ponto.nome}".`,
-            'info',
-            'Editar Ponto'
+          options.onEdit(dadosAtuais, marker);
+        } else {
+          document.dispatchEvent(
+            new CustomEvent('geoturismo:editar-ponto', { detail: { ponto: dadosAtuais, marker } })
           );
         }
       };
@@ -203,19 +202,15 @@ export function vincularEventosPopup(marker, ponto, options = {}) {
         e.preventDefault();
         e.stopPropagation();
 
-        document.dispatchEvent(
-          new CustomEvent('geoturismo:excluir-ponto', { detail: { ponto, marker } })
-        );
+        const dadosAtuais = marker.pontoData || ponto;
 
         if (typeof window.geoTurismo?.confirmarExclusao === 'function') {
-          window.geoTurismo.confirmarExclusao(ponto);
+          window.geoTurismo.confirmarExclusao(dadosAtuais, marker);
         } else if (typeof options.onDelete === 'function') {
-          options.onDelete(ponto);
-        } else if (typeof options.showToast === 'function') {
-          options.showToast(
-            `Exclusão selecionada para "${ponto.nome}".`,
-            'warning',
-            'Excluir Ponto'
+          options.onDelete(dadosAtuais, marker);
+        } else {
+          document.dispatchEvent(
+            new CustomEvent('geoturismo:excluir-ponto', { detail: { ponto: dadosAtuais, marker } })
           );
         }
       };
