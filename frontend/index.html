@@ -65,8 +65,13 @@
           </button>
         </div>
 
-        <!-- Placeholder para Controles Futuros: US04 (Novo Ponto - Dev 3) -->
-        <div id="crud-control-placeholder" class="header-slot"></div>
+        <!-- US04: Botão de Cadastro de Novo Ponto (Dev 3) -->
+        <div id="crud-control-placeholder" class="header-slot">
+          <button id="btn-novo-ponto" class="btn btn-primary" title="Cadastrar novo ponto turístico" aria-label="Cadastrar Novo Ponto">
+            <span class="btn-icon">➕</span>
+            <span class="btn-text">Novo Ponto</span>
+          </button>
+        </div>
       </div>
     </header>
 
@@ -74,6 +79,142 @@
     <main id="map-container">
       <div id="map"></div>
     </main>
+
+    <!-- Painel Flutuante de Cadastro de Ponto Turístico (US04 - Dev 3) -->
+    <aside id="panel-cadastro-container" class="panel-cadastro-container hidden" role="dialog" aria-modal="true" aria-labelledby="cadastro-title">
+      <div class="panel-cadastro-card">
+        <header class="panel-header">
+          <div class="panel-title-wrapper">
+            <span class="panel-title-icon">📍</span>
+            <div>
+              <h2 id="cadastro-title" class="panel-title">Novo Ponto Turístico</h2>
+              <span class="panel-subtitle">Geocodificação e PostGIS</span>
+            </div>
+          </div>
+          <button type="button" id="btn-fechar-cadastro" class="panel-close-btn" title="Fechar painel" aria-label="Fechar painel">&times;</button>
+        </header>
+
+        <form id="form-cadastro-ponto" class="cadastro-form" novalidate>
+          <div class="form-scrollable-body">
+            <!-- Informações Gerais -->
+            <div class="form-group">
+              <label for="ponto-nome">Nome do Ponto <span class="required-mark">*</span></label>
+              <input 
+                type="text" 
+                id="ponto-nome" 
+                name="nome" 
+                placeholder="Ex: Cristo Redentor, Teatro Municipal..." 
+                required 
+                maxlength="150" 
+              />
+            </div>
+
+            <div class="form-row">
+              <div class="form-group flex-1">
+                <label for="ponto-categoria">Categoria <span class="required-mark">*</span></label>
+                <select id="ponto-categoria" name="categoria" required>
+                  <option value="" disabled selected>Selecione...</option>
+                  <option value="Histórico">🏛️ Histórico</option>
+                  <option value="Museu">🖼️ Museu</option>
+                  <option value="Parque">🌳 Parque</option>
+                  <option value="Gastronomia">🍽️ Gastronomia</option>
+                  <option value="Praia">🏖️ Praia</option>
+                  <option value="Mirante">🌄 Mirante</option>
+                  <option value="Religioso">⛪ Religioso</option>
+                  <option value="Cultural">🎭 Cultural</option>
+                  <option value="Outro">📍 Outro</option>
+                </select>
+              </div>
+
+              <div class="form-group flex-1">
+                <label for="ponto-foto">URL da Foto</label>
+                <input 
+                  type="url" 
+                  id="ponto-foto" 
+                  name="foto_url" 
+                  placeholder="https://images.unsplash..." 
+                />
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="ponto-descricao">Descrição</label>
+              <textarea 
+                id="ponto-descricao" 
+                name="descricao" 
+                rows="2" 
+                placeholder="Breve história, horários ou atrativos..."
+              ></textarea>
+            </div>
+
+            <!-- Seção de Localização Espacial -->
+            <div class="form-section-header">
+              <span class="section-tag">Espacial</span>
+              <span class="section-title">Localização & Coordenadas</span>
+            </div>
+
+            <!-- Geocodificação com Nominatim (Critério 1) -->
+            <div class="form-group nominatim-group">
+              <label for="nominatim-search">Buscar Endereço (Nominatim)</label>
+              <div class="nominatim-input-container">
+                <span class="nominatim-search-icon">🔍</span>
+                <input 
+                  type="text" 
+                  id="nominatim-search" 
+                  placeholder="Ex: Av. Paulista, Praça Mauá..." 
+                  autocomplete="off" 
+                />
+                <span id="nominatim-spinner" class="nominatim-loading-spinner hidden"></span>
+                <button type="button" id="btn-limpar-nominatim" class="nominatim-clear-btn hidden" title="Limpar busca">&times;</button>
+              </div>
+              <ul id="nominatim-results" class="nominatim-results-list hidden" role="listbox"></ul>
+            </div>
+
+            <!-- Coordenadas Geográficas (Critério 2) -->
+            <div class="form-row coords-group">
+              <div class="form-group flex-1">
+                <label for="ponto-latitude">Latitude (WGS84) <span class="required-mark">*</span></label>
+                <input 
+                  type="number" 
+                  id="ponto-latitude" 
+                  name="latitude" 
+                  step="any" 
+                  placeholder="-22.951916" 
+                  required 
+                />
+              </div>
+              <div class="form-group flex-1">
+                <label for="ponto-longitude">Longitude (WGS84) <span class="required-mark">*</span></label>
+                <input 
+                  type="number" 
+                  id="ponto-longitude" 
+                  name="longitude" 
+                  step="any" 
+                  placeholder="-43.210487" 
+                  required 
+                />
+              </div>
+            </div>
+
+            <!-- Banner com Instruções do WebGIS -->
+            <div class="coords-instruction-box">
+              <span class="instruction-icon">💡</span>
+              <div class="instruction-content">
+                <strong>Ajuste no mapa:</strong> Você pode clicar diretamente em qualquer ponto do mapa ou <strong>arrastar o pino vermelho</strong> para definir a localização com precisão.
+              </div>
+            </div>
+          </div>
+
+          <footer class="panel-footer">
+            <button type="button" id="btn-cancelar-cadastro" class="btn btn-secondary">Cancelar</button>
+            <button type="submit" id="btn-submeter-cadastro" class="btn btn-primary">
+              <span id="cadastro-btn-spinner" class="spinner-inline hidden"></span>
+              <span id="cadastro-btn-text">Salvar Ponto</span>
+            </button>
+          </footer>
+        </form>
+      </div>
+    </aside>
 
     <!-- Container de Notificações Toast Flutuante -->
     <div id="toast-container" class="toast-container" aria-live="polite"></div>

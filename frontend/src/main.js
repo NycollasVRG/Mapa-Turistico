@@ -6,6 +6,7 @@
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import './style.css';
+import { initCadastro } from './cadastro.js';
 
 // Garante compatibilidade tanto com Vite quanto com CDN nativo (window.L)
 const Leaflet = window.L || L;
@@ -713,6 +714,14 @@ export function initMap() {
 
   // US01: Solicita a permissão e centraliza por geolocalização automaticamente ao inicializar
   locateUser();
+
+  // US04: Inicializa módulo de cadastro e geocodificação (Dev 3)
+  initCadastro({
+    map,
+    API_BASE_URL,
+    showToast,
+    carregarPontosPorBBox
+  });
 
   return map;
 }
