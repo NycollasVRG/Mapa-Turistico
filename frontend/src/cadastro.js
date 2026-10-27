@@ -1,10 +1,12 @@
 /**
- * GeoTurismo — Módulo de Cadastro e Geocodificação (US04 - Dev 3)
- * Responsável pela interface de cadastro, integração com Nominatim (OpenStreetMap),
- * manipulação do pino arrastável no mapa e envio do POST /api/pontos com PostGIS.
+ * GeoTurismo — Módulo de Cadastro, Geocodificação, Edição e Exclusão (US04 & US06 - Dev 3)
+ * Responsável pela interface de cadastro/edição, integração com Nominatim (OpenStreetMap),
+ * manipulação do pino arrastável no mapa, envio de POST /api/pontos, PUT /api/pontos/:id
+ * e confirmação/exclusão via DELETE /api/pontos/:id com remoção visual imediata.
  */
 
 import L from 'leaflet';
+import { criarConteudoPopup } from './popup.js';
 
 let mapInstance = null;
 let apiBaseUrl = 'http://localhost:3000/api';
@@ -15,10 +17,18 @@ let isCadastroOpen = false;
 let pinoCriacao = null;
 let debounceNominatimTimer = null;
 
+// Estado de Edição e Exclusão (US06)
+let pontoEmEdicao = null;
+let markerEmEdicao = null;
+let pontoParaExcluir = null;
+let markerParaExcluir = null;
+
 /**
- * Cria o ícone personalizado e destacado para o pino de criação.
+ * Cria o ícone personalizado e destacado para o pino de criação/edição.
+ * @param {boolean} [isEdit=false] Indica se o pino está em modo de edição
  */
-function criarIconePinoCriacao() {
+function criarIconePinoCriacao(isEdit = false) {
+  const tagTexto = isEdit ? 'Arraste para mover' : 'Arraste para ajustar';
   return L.divIcon({
     className: 'creation-pin-container',
     html: `
@@ -27,7 +37,7 @@ function criarIconePinoCriacao() {
         <div class="creation-pin-marker">
           <span class="creation-pin-emoji">📍</span>
         </div>
-        <div class="creation-pin-tag">Arraste para ajustar</div>
+        <div class="creation-pin-tag">${tagTexto}</div>
       </div>
     `,
     iconSize: [36, 52],
@@ -36,7 +46,35 @@ function criarIconePinoCriacao() {
 }
 
 /**
- * Inicializa os ouvintes de eventos e elementos da US04.
+ * Busca a instância do marcador na markersLayer a partir do ID do ponto turístico.
+ * @param {number|string} id
+ * @returns {L.Marker|null}
+ */
+function encontrarMarkerPorId(id) {
+  const layerGroup = window.geoTurismo?.markersLayer;
+  if (!layerGroup || id === undefined || id === null) return null;
+
+  let encontrado = null;
+  layerGroup.eachLayer((layer) => {
+    if (String(layer.pontoId) === String(id)) {
+      encontrado = layer;
+    }
+  });
+  return encontrado;
+}
+
+/**
+ * Restaura a opacidade original do marcador que estava sendo editado, se houver.
+ */
+function restaurarMarkerEmEdicao() {
+  if (markerEmEdicao && typeof markerEmEdicao.setOpacity === 'function') {
+    markerEmEdicao.setOpacity(1);
+  }
+  markerEmEdicao = null;
+}
+
+/**
+ * Inicializa os ouvintes de eventos e elementos da US04 e US06.
  */
 export function initCadastro(options = {}) {
   mapInstance = options.map || window.geoTurismo?.map;
@@ -52,6 +90,11 @@ export function initCadastro(options = {}) {
   const btnLimparNominatim = document.getElementById('btn-limpar-nominatim');
   const inputLat = document.getElementById('ponto-latitude');
   const inputLng = document.getElementById('ponto-longitude');
+
+  // Elementos do modal de confirmação de exclusão (US06)
+  const modalConfirm = document.getElementById('modal-confirmar-exclusao');
+  const btnCancelarExclusao = document.getElementById('btn-cancelar-exclusao');
+  const btnConfirmarExclusao = document.getElementById('btn-confirmar-exclusao');
 
   if (btnNovoPonto) {
     btnNovoPonto.addEventListener('click', () => {
@@ -102,7 +145,24 @@ export function initCadastro(options = {}) {
   if (inputLat) inputLat.addEventListener('change', handleManualCoordChange);
   if (inputLng) inputLng.addEventListener('change', handleManualCoordChange);
 
-  // Fecha sugestões ao clicar fora
+  // Eventos do modal de confirmação de exclusão (US06)
+  if (btnCancelarExclusao) {
+    btnCancelarExclusao.addEventListener('click', fecharModalConfirmacaoExclusao);
+  }
+
+  if (btnConfirmarExclusao) {
+    btnConfirmarExclusao.addEventListener('click', executarExclusaoPonto);
+  }
+
+  if (modalConfirm) {
+    modalConfirm.addEventListener('click', (e) => {
+      if (e.target === modalConfirm) {
+        fecharModalConfirmacaoExclusao();
+      }
+    });
+  }
+
+  // Fecha sugestões ao clicar fora e fecha modal com Escape
   document.addEventListener('click', (e) => {
     const nominatimGroup = document.querySelector('.nominatim-group');
     if (nominatimGroup && !nominatimGroup.contains(e.target)) {
@@ -110,31 +170,87 @@ export function initCadastro(options = {}) {
     }
   });
 
-  // Registra no objeto global para interoperabilidade
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      if (modalConfirm && !modalConfirm.classList.contains('hidden')) {
+        fecharModalConfirmacaoExclusao();
+      }
+    }
+  });
+
+  // Escuta CustomEvents disparados pelos popups (US05 -> US06)
+  document.addEventListener('geoturismo:editar-ponto', (e) => {
+    if (e.detail?.ponto) {
+      abrirEdicaoPonto(e.detail.ponto, e.detail.marker);
+    }
+  });
+
+  document.addEventListener('geoturismo:excluir-ponto', (e) => {
+    if (e.detail?.ponto) {
+      confirmarExclusaoPonto(e.detail.ponto, e.detail.marker);
+    }
+  });
+
+  // Registra no objeto global para interoperabilidade entre módulos
   if (window.geoTurismo) {
     window.geoTurismo.abrirCadastro = abrirPainelCadastro;
     window.geoTurismo.fecharCadastro = fecharPainelCadastro;
+    window.geoTurismo.abrirEdicao = abrirEdicaoPonto;
+    window.geoTurismo.confirmarExclusao = confirmarExclusaoPonto;
   }
 }
 
 /**
- * Abre o painel lateral de cadastro e habilita o modo de captura cartográfica.
+ * Configura os textos de cabeçalho e botão do painel conforme o modo (Criação vs Edição).
+ * @param {boolean} isEdit
+ */
+function configurarCabecalhoPainel(isEdit = false) {
+  const titleEl = document.getElementById('cadastro-title');
+  const subtitleEl = document.querySelector('.panel-subtitle');
+  const iconEl = document.querySelector('.panel-title-icon');
+  const btnTextEl = document.getElementById('cadastro-btn-text');
+
+  if (isEdit) {
+    if (titleEl) titleEl.textContent = 'Editar Ponto Turístico';
+    if (subtitleEl) subtitleEl.textContent = 'Atualizar Dados e Geometria';
+    if (iconEl) iconEl.textContent = '✏️';
+    if (btnTextEl) btnTextEl.textContent = 'Salvar Alterações';
+  } else {
+    if (titleEl) titleEl.textContent = 'Novo Ponto Turístico';
+    if (subtitleEl) subtitleEl.textContent = 'Geocodificação e PostGIS';
+    if (iconEl) iconEl.textContent = '📍';
+    if (btnTextEl) btnTextEl.textContent = 'Salvar Ponto';
+  }
+}
+
+/**
+ * Abre o painel lateral em modo de criação de novo ponto (US04).
  */
 export function abrirPainelCadastro() {
   const panel = document.getElementById('panel-cadastro-container');
   if (!panel) return;
 
+  restaurarMarkerEmEdicao();
+  pontoEmEdicao = null;
+  resetFormulario();
+  configurarCabecalhoPainel(false);
+
+  if (pinoCriacao && mapInstance) {
+    mapInstance.removeLayer(pinoCriacao);
+    pinoCriacao = null;
+  }
+
   panel.classList.remove('hidden');
   isCadastroOpen = true;
 
-  // Atualiza cursor do mapa para indicar modo de seleção de ponto
   if (mapInstance) {
+    mapInstance.closePopup();
     const container = mapInstance.getContainer();
     if (container) container.classList.add('cursor-crosshair');
+    mapInstance.off('click', handleMapClick);
     mapInstance.on('click', handleMapClick);
   }
 
-  // Define posição inicial do pino: localização do usuário ou centro do mapa
   const initialCoord = window.geoTurismo?.userLocation?.lat
     ? [window.geoTurismo.userLocation.lat, window.geoTurismo.userLocation.lng]
     : mapInstance ? [mapInstance.getCenter().lat, mapInstance.getCenter().lng] : [-22.951916, -43.210487];
@@ -154,13 +270,86 @@ export function abrirPainelCadastro() {
 }
 
 /**
- * Fecha o painel de cadastro e restaura os listeners e o cursor padrão.
+ * Abre o painel lateral pré-preenchido com os dados do ponto turístico para edição (US06).
+ * Posiciona o pino arrastável nas coordenadas atuais do ponto para permitir ajuste geométrico.
+ *
+ * @param {object} ponto Objeto com os dados atuais do ponto turístico
+ * @param {L.Marker} [marker=null] Referência opcional ao marcador no mapa
+ */
+export function abrirEdicaoPonto(ponto, marker = null) {
+  if (!ponto || ponto.id === undefined) return;
+
+  const panel = document.getElementById('panel-cadastro-container');
+  if (!panel) return;
+
+  restaurarMarkerEmEdicao();
+  pontoEmEdicao = { ...ponto };
+  markerEmEdicao = marker || encontrarMarkerPorId(ponto.id);
+
+  if (markerEmEdicao && typeof markerEmEdicao.setOpacity === 'function') {
+    markerEmEdicao.setOpacity(0.35);
+  }
+
+  resetFormulario();
+  configurarCabecalhoPainel(true);
+
+  if (pinoCriacao && mapInstance) {
+    mapInstance.removeLayer(pinoCriacao);
+    pinoCriacao = null;
+  }
+
+  // Pré-preenchimento dos campos do formulário (Critério 1 - US06)
+  const nomeInput = document.getElementById('ponto-nome');
+  const categoriaSelect = document.getElementById('ponto-categoria');
+  const fotoInput = document.getElementById('ponto-foto');
+  const descricaoInput = document.getElementById('ponto-descricao');
+
+  if (nomeInput) nomeInput.value = ponto.nome || '';
+  if (categoriaSelect) {
+    const opcoesValidas = Array.from(categoriaSelect.options).map((o) => o.value);
+    categoriaSelect.value = opcoesValidas.includes(ponto.categoria) ? ponto.categoria : 'Outro';
+  }
+  if (fotoInput) fotoInput.value = ponto.foto_url || '';
+  if (descricaoInput) descricaoInput.value = ponto.descricao || '';
+
+  panel.classList.remove('hidden');
+  isCadastroOpen = true;
+
+  if (mapInstance) {
+    mapInstance.closePopup();
+    const container = mapInstance.getContainer();
+    if (container) container.classList.add('cursor-crosshair');
+    mapInstance.off('click', handleMapClick);
+    mapInstance.on('click', handleMapClick);
+  }
+
+  const lat = parseFloat(ponto.latitude);
+  const lng = parseFloat(ponto.longitude);
+  if (!isNaN(lat) && !isNaN(lng)) {
+    atualizarPosicaoPino(lat, lng, true);
+  }
+
+  if (nomeInput) nomeInput.focus();
+
+  if (toastFn) {
+    toastFn(
+      `Editando "${ponto.nome}". Arraste o pino ou clique no mapa se desejar alterar o local.`,
+      'info',
+      'Modo de Edição'
+    );
+  }
+}
+
+/**
+ * Fecha o painel de cadastro/edição e restaura os listeners e o cursor padrão.
  */
 export function fecharPainelCadastro() {
   const panel = document.getElementById('panel-cadastro-container');
   if (panel) panel.classList.add('hidden');
 
   isCadastroOpen = false;
+  pontoEmEdicao = null;
+  restaurarMarkerEmEdicao();
 
   if (mapInstance) {
     const container = mapInstance.getContainer();
@@ -175,10 +364,11 @@ export function fecharPainelCadastro() {
 
   fecharSugestoesNominatim();
   resetFormulario();
+  configurarCabecalhoPainel(false);
 }
 
 /**
- * Trata o clique no mapa enquanto o painel de cadastro está ativo.
+ * Trata o clique no mapa enquanto o painel de cadastro/edição está ativo.
  */
 function handleMapClick(e) {
   if (!isCadastroOpen) return;
@@ -201,15 +391,16 @@ function atualizarPosicaoPino(lat, lng, panToLocation = false) {
   if (inputLat) inputLat.value = latFormatada;
   if (inputLng) inputLng.value = lngFormatada;
 
+  const isEdit = Boolean(pontoEmEdicao);
+
   if (!pinoCriacao) {
     pinoCriacao = L.marker([lat, lng], {
-      icon: criarIconePinoCriacao(),
+      icon: criarIconePinoCriacao(isEdit),
       draggable: true,
       zIndexOffset: 2000,
-      title: 'Ponto Turístico em Cadastro'
+      title: isEdit ? 'Arraste para atualizar a posição' : 'Ponto Turístico em Cadastro'
     }).addTo(mapInstance);
 
-    // Eventos de arraste do pino
     pinoCriacao.on('drag', (ev) => {
       const pos = ev.target.getLatLng();
       if (inputLat) inputLat.value = pos.lat.toFixed(6);
@@ -226,7 +417,7 @@ function atualizarPosicaoPino(lat, lng, panToLocation = false) {
   }
 
   if (panToLocation) {
-    mapInstance.flyTo([lat, lng], Math.max(mapInstance.getZoom(), 16), { duration: 1.2 });
+    mapInstance.flyTo([lat, lng], Math.max(mapInstance.getZoom(), 16), { duration: 1.0 });
   }
 }
 
@@ -367,7 +558,7 @@ function resetFormulario() {
 }
 
 /**
- * Trata o envio do formulário, validações e POST /api/pontos.
+ * Trata o envio do formulário, validações e chamadas POST /api/pontos (US04) ou PUT /api/pontos/:id (US06).
  */
 async function handleFormSubmit(e) {
   e.preventDefault();
@@ -390,7 +581,6 @@ async function handleFormSubmit(e) {
   const latitude = parseFloat(latInput?.value);
   const longitude = parseFloat(lngInput?.value);
 
-  // Validações de entrada
   if (!nome) {
     if (toastFn) toastFn('Informe o nome do ponto turístico.', 'warning', 'Campo Obrigatório');
     nomeInput?.focus();
@@ -424,13 +614,17 @@ async function handleFormSubmit(e) {
     longitude
   };
 
+  const isEditing = Boolean(pontoEmEdicao && pontoEmEdicao.id !== undefined);
+  const endpoint = isEditing ? `${apiBaseUrl}/pontos/${pontoEmEdicao.id}` : `${apiBaseUrl}/pontos`;
+  const metodo = isEditing ? 'PUT' : 'POST';
+
   try {
     if (btnSubmit) btnSubmit.disabled = true;
     if (spinner) spinner.classList.remove('hidden');
-    if (btnText) btnText.textContent = 'Cadastrando...';
+    if (btnText) btnText.textContent = isEditing ? 'Salvando...' : 'Cadastrando...';
 
-    const response = await fetch(`${apiBaseUrl}/pontos`, {
-      method: 'POST',
+    const response = await fetch(endpoint, {
+      method: metodo,
       headers: {
         'Content-Type': 'application/json'
       },
@@ -443,38 +637,194 @@ async function handleFormSubmit(e) {
       throw new Error(data.error || `Erro HTTP ${response.status}`);
     }
 
+    // Se estiver editando, atualiza imediatamente o marcador existente na tela antes mesmo do reload
+    if (isEditing && markerEmEdicao) {
+      const pontoAtualizado = {
+        ...pontoEmEdicao,
+        ...payload,
+        ...data
+      };
+      markerEmEdicao.pontoData = pontoAtualizado;
+      markerEmEdicao.setLatLng([latitude, longitude]);
+      markerEmEdicao.setOpacity(1);
+      const novoHtmlPopup = criarConteudoPopup(pontoAtualizado, window.geoTurismo?.formatarDistancia);
+      markerEmEdicao.setPopupContent(novoHtmlPopup);
+    }
+
     if (toastFn) {
       toastFn(
-        `"${payload.nome}" foi persistido com sucesso no PostGIS!`,
+        isEditing
+          ? `"${payload.nome}" foi atualizado com sucesso no PostGIS!`
+          : `"${payload.nome}" foi persistido com sucesso no PostGIS!`,
         'success',
-        'Cadastro Concluído'
+        isEditing ? 'Edição Concluída' : 'Cadastro Concluído'
       );
     }
 
     fecharPainelCadastro();
 
-    // Recarrega a camada de pontos do mapa e centraliza no novo registro
-    if (reloadBBoxFn) {
-      await reloadBBoxFn();
-    } else if (window.geoTurismo?.carregarPontosPorBBox) {
-      await window.geoTurismo.carregarPontosPorBBox();
+    // Recarrega a camada de pontos do mapa
+    if (!window.geoTurismo?.isRadiusSearchActive) {
+      if (reloadBBoxFn) {
+        await reloadBBoxFn();
+      } else if (window.geoTurismo?.carregarPontosPorBBox) {
+        await window.geoTurismo.carregarPontosPorBBox();
+      }
     }
 
     if (mapInstance) {
-      mapInstance.flyTo([latitude, longitude], 16, { duration: 1.2 });
+      mapInstance.flyTo([latitude, longitude], Math.max(mapInstance.getZoom(), 16), { duration: 1.0 });
     }
   } catch (err) {
-    console.error('[GeoTurismo] Falha no POST /api/pontos:', err);
+    console.error(`[GeoTurismo] Falha no ${metodo} ${endpoint}:`, err);
     if (toastFn) {
       toastFn(
         err.message || 'Falha ao salvar no banco PostGIS. Verifique o servidor.',
         'error',
-        'Erro no Cadastro'
+        isEditing ? 'Erro na Edição' : 'Erro no Cadastro'
       );
     }
   } finally {
     if (btnSubmit) btnSubmit.disabled = false;
     if (spinner) spinner.classList.add('hidden');
-    if (btnText) btnText.textContent = 'Salvar Ponto';
+    if (btnText) btnText.textContent = isEditing ? 'Salvar Alterações' : 'Salvar Ponto';
+  }
+}
+
+// ========================================================
+// Fluxo de Confirmação e Exclusão de Ponto (US06)
+// ========================================================
+
+/**
+ * Abre o modal de confirmação antes de excluir um ponto turístico (Critério 3 - US06).
+ * @param {object} ponto Dados do ponto turístico a ser excluído
+ * @param {L.Marker} [marker=null] Instância do marcador no Leaflet
+ */
+export function confirmarExclusaoPonto(ponto, marker = null) {
+  if (!ponto || ponto.id === undefined) return;
+
+  pontoParaExcluir = ponto;
+  markerParaExcluir = marker || encontrarMarkerPorId(ponto.id);
+
+  const modal = document.getElementById('modal-confirmar-exclusao');
+  const nomeSpan = document.getElementById('confirm-ponto-nome');
+  const btnConfirmar = document.getElementById('btn-confirmar-exclusao');
+
+  if (nomeSpan) {
+    nomeSpan.textContent = `"${ponto.nome || 'Ponto Turístico'}"`;
+  }
+
+  if (modal) {
+    modal.classList.remove('hidden');
+  }
+
+  if (btnConfirmar) {
+    btnConfirmar.focus();
+  }
+}
+
+/**
+ * Fecha o modal de confirmação de exclusão e limpa o estado temporário.
+ */
+export function fecharModalConfirmacaoExclusao() {
+  const modal = document.getElementById('modal-confirmar-exclusao');
+  if (modal) {
+    modal.classList.add('hidden');
+  }
+  pontoParaExcluir = null;
+  markerParaExcluir = null;
+}
+
+/**
+ * Remove imediatamente o marcador da camada do mapa e atualiza o contador de pontos (Critério 5 - US06).
+ * @param {number|string} id ID do ponto removido
+ * @param {L.Marker} [markerRef=null] Referência direta opcional ao marcador
+ */
+function removerMarkerVisualmente(id, markerRef = null) {
+  const layerGroup = window.geoTurismo?.markersLayer;
+  if (!layerGroup) return;
+
+  if (mapInstance) {
+    mapInstance.closePopup();
+  }
+
+  const alvo = markerRef || encontrarMarkerPorId(id);
+  if (alvo && layerGroup.hasLayer(alvo)) {
+    layerGroup.removeLayer(alvo);
+  } else {
+    layerGroup.eachLayer((layer) => {
+      if (String(layer.pontoId) === String(id)) {
+        layerGroup.removeLayer(layer);
+      }
+    });
+  }
+
+  if (typeof window.geoTurismo?.atualizarStatusPontos === 'function') {
+    window.geoTurismo.atualizarStatusPontos(layerGroup.getLayers().length, false);
+  }
+}
+
+/**
+ * Executa a chamada DELETE /api/pontos/:id e remove o marcador imediatamente (Critérios 4 e 5 - US06).
+ */
+async function executarExclusaoPonto() {
+  if (!pontoParaExcluir || pontoParaExcluir.id === undefined) return;
+
+  const id = pontoParaExcluir.id;
+  const nome = pontoParaExcluir.nome || 'Ponto Turístico';
+  const markerRef = markerParaExcluir;
+
+  const btnConfirmar = document.getElementById('btn-confirmar-exclusao');
+  const btnCancelar = document.getElementById('btn-cancelar-exclusao');
+  const spinner = document.getElementById('exclusao-btn-spinner');
+  const btnText = document.getElementById('exclusao-btn-text');
+
+  try {
+    if (btnConfirmar) btnConfirmar.disabled = true;
+    if (btnCancelar) btnCancelar.disabled = true;
+    if (spinner) spinner.classList.remove('hidden');
+    if (btnText) btnText.textContent = 'Excluindo...';
+
+    const response = await fetch(`${apiBaseUrl}/pontos/${id}`, {
+      method: 'DELETE'
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(data.error || `Erro HTTP ${response.status}`);
+    }
+
+    // Se o ponto excluído estava aberto em modo de edição, fecha o painel lateral
+    if (pontoEmEdicao && String(pontoEmEdicao.id) === String(id)) {
+      fecharPainelCadastro();
+    }
+
+    // Critério 5: Remove o marcador visualmente de forma imediata do mapa
+    removerMarkerVisualmente(id, markerRef);
+
+    fecharModalConfirmacaoExclusao();
+
+    if (toastFn) {
+      toastFn(
+        `O ponto "${nome}" foi removido permanentemente.`,
+        'success',
+        'Ponto Excluído'
+      );
+    }
+  } catch (err) {
+    console.error(`[GeoTurismo] Falha no DELETE /api/pontos/${id}:`, err);
+    if (toastFn) {
+      toastFn(
+        err.message || 'Não foi possível excluir o ponto turístico. Tente novamente.',
+        'error',
+        'Erro na Exclusão'
+      );
+    }
+  } finally {
+    if (btnConfirmar) btnConfirmar.disabled = false;
+    if (btnCancelar) btnCancelar.disabled = false;
+    if (spinner) spinner.classList.add('hidden');
+    if (btnText) btnText.textContent = 'Sim, Excluir';
   }
 }
