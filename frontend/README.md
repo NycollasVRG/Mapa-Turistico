@@ -353,3 +353,21 @@ Caso precise explicar para os avaliadores ou professores a integração entre o 
 | **Seleção de Raio no Header (ex: 5 km)** | Evento `change` do `#select-radius` | `GET /api/pontos/proximidade?lng=...&lat=...&raio=5000` | `ST_DWithin(geom::geography, ST_SetSRID(ST_MakePoint(lng, lat), 4326)::geography, raio)` e distância calculada via `ST_Distance(geom::geography, ...)`. |
 | **Reciclagem de Marcadores na Tela** | `markersLayer.clearLayers()` | Evita vazamento de memória e sobreposição de marcadores antigos ao navegar pelo mapa. | Não onera o banco de dados; resolve a limpeza atômica no cliente mantendo a `userLayer` intacta. |
 | **Tratamento de Race Condition** | `setRadiusSearchActive(true)` antes de `map.fitBounds()` | Impede que a animação de enquadramento da câmera do Leaflet dispare inadvertidamente uma busca por Bounding Box concorrente. | Garante integridade transacional do estado da UI. |
+
+
+---
+
+## 6. Módulos de CRUD, Geocodificação e Popups (Dev 3 — US04, US05 e US06)
+
+### US04 — Cadastro com Geocodificação Nominatim e Pino Arrastável (`src/cadastro.js`)
+- **Painel Lateral Flutuante (*Glassmorphism*):** Permite preencher os dados do ponto turístico sem bloquear a visualização ou o clique no mapa principal.
+- **Busca de Endereços (Nominatim OpenStreetMap):** Consulta `https://nominatim.openstreetmap.org/search?format=json&q=...` com *debounce* de 400ms, exibindo sugestões em dropdown e autopreenchendo coordenadas e título ao selecionar.
+- **Captura e Refinamento Espacial:** Suporta clique direto no mapa (`cursor-crosshair`) e marcador arrastável (`draggable: true`), sincronizando `latitude` e `longitude` em tempo real antes de enviar `POST /api/pontos`.
+
+### US05 — Popups Responsivos e Fallback de Imagem (`src/popup.js`)
+- **Card Estilizado:** Exibe fotografia de capa, badge colorido semântico por categoria (`Histórico`, `Museu`, `Parque`, `Gastronomia`, `Praia`, `Mirante`, `Religioso`, `Cultural`, `Outro`), descrição, distância geodésica (`ST_Distance`) e coordenadas `SRID 4326`.
+- **Placeholder Resiliente:** Caso a URL da imagem falhe ao carregar (`onerror`) ou não seja informada, substitui automaticamente por um *placeholder* visual estilizado com o ícone da categoria.
+
+### US06 — Edição Geométrica e Exclusão Imediata (`src/cadastro.js` & `src/popup.js`)
+- **Edição Pré-Preenchida (`PUT /api/pontos/:id`):** Ao acionar **✏️ Editar** no popup, carrega todos os dados no painel lateral, reduz a opacidade do marcador original (`0.35`) e posiciona o pino arrastável para ajuste fino da geometria.
+- **Exclusão com Confirmação (`DELETE /api/pontos/:id`):** Ao acionar **🗑️ Excluir**, abre o modal `#modal-confirmar-exclusao` e, após confirmação, remove imediatamente o marcador da `markersLayer` e atualiza o contador de pontos sem recarregar a página.
