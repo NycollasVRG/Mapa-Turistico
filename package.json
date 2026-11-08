@@ -1,0 +1,17 @@
+{
+  "name": "geoturismo",
+  "version": "1.0.0",
+  "description": "Projeto de Banco de Dados Geográficos - Mapa Turístico com PostGIS e Leaflet",
+  "scripts": {
+    "install:all": "npm --prefix backend install && npm --prefix frontend install",
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend run dev"
+  },
+  "keywords": [
+    "postgis",
+    "leaflet",
+    "gis"
+  ],
+  "author": "",
+  "license": "ISC"
+}
